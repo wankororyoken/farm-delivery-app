@@ -1,4 +1,5 @@
 // ── 設定 ─────────────────────────────────────────────
+var SPREADSHEET_ID = '1GEfGO4_t4l5bmftBA2pXncZ1kXdMYtZBhdsvIjz4L-o';
 var SHEET_NAME     = 'シート1'; // データが入っているタブ名
 var DATA_START_ROW = 2;         // 1行目がヘッダーなので2から
 var COL = { DATE:0, PRODUCT:1, QTY:2, UNIT_PRICE:3, AMOUNT:4, BUSINESS:5, DESTINATION:6 };
@@ -36,7 +37,7 @@ function appendRows(rows) {
 
 // ── 内部ユーティリティ ────────────────────────────────
 function getSheet_() {
-  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var ss    = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) throw new Error('シート「' + SHEET_NAME + '」が見つかりません。コード.gs の SHEET_NAME を確認してください。');
   return sheet;
