@@ -9,10 +9,7 @@ function doGet() {
     .evaluate()
     .setTitle('農場配達管理')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0')
-    .addMetaTag('apple-mobile-web-app-capable', 'yes')
-    .addMetaTag('apple-mobile-web-app-status-bar-style', 'black-translucent')
-    .addMetaTag('apple-mobile-web-app-title', '農場配達');
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
 }
 
 // style.html / script.html をインクルードするためのヘルパー
