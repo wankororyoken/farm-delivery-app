@@ -1,6 +1,6 @@
 // ── 設定 ─────────────────────────────────────────────
 var SPREADSHEET_ID = '1GEfGO4_t4l5bmftBA2pXncZ1kXdMYtZBhdsvIjz4L-o';
-var SHEET_NAME     = 'シート1'; // データが入っているタブ名
+var SHEET_NAME     = 'Sheet1'; // データが入っているタブ名
 var DATA_START_ROW = 2;         // 1行目がヘッダーなので2から
 var COL = { DATE:0, PRODUCT:1, QTY:2, UNIT_PRICE:3, AMOUNT:4, BUSINESS:5, DESTINATION:6 };
 
