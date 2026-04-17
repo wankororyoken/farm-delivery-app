@@ -1,0 +1,582 @@
+<script>
+// ── GASサーバー関数をPromiseでラップ ─────────────────
+function gasCall(fnName, arg) {
+  return new Promise(function(resolve, reject) {
+    var runner = google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(function(e) { reject(new Error(e.message || String(e))); });
+    if (arg !== undefined) runner[fnName](arg);
+    else runner[fnName]();
+  });
+}
+
+// ── 定数 ─────────────────────────────────────────────
+var COL = { DATE:0, PRODUCT:1, QTY:2, UNIT_PRICE:3, AMOUNT:4, BUSINESS:5, DESTINATION:6 };
+var DEFAULT_BUSINESSES   = ['農場'];
+var DEFAULT_DESTINATIONS = ['なのはな食堂'];
+
+// ── 状態 ─────────────────────────────────────────────
+var allRows        = [];
+var pendingItems   = [];
+var productHistory = {};  // { "人参": [{date, unitPrice}] }
+var businesses     = [];
+var destinations   = [];
+
+// ── DOM参照 ──────────────────────────────────────────
+function $(id) { return document.getElementById(id); }
+
+var fDate        = $('f-date');
+var fBusiness    = $('f-business');
+var fDestination = $('f-destination');
+var fProduct     = $('f-product');
+var fQty         = $('f-qty');
+var fPrice       = $('f-price');
+var fAmount      = $('f-amount');
+var btnAddItem   = $('btn-add-item');
+var pendingTbody = $('pending-tbody');
+var pendingTotal = $('pending-total');
+var btnSave      = $('btn-save');
+var btnClear     = $('btn-clear');
+var saveBar      = $('save-bar');
+var saveBarTotal = $('save-bar-total');
+var saveStatus   = $('save-status');
+var suggestions  = $('product-suggestions');
+var loadingOverlay = $('loading-overlay');
+var loadingMsg   = $('loading-msg');
+
+// ── 起動 ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  setDefaultDate();
+  setupNavigation();
+  setupEntryForm();
+  setupListView();
+  setupInvoiceView();
+  loadData();
+});
+
+function setDefaultDate() {
+  var today = new Date();
+  fDate.value = today.toISOString().slice(0, 10);
+}
+
+// ── データ読み込み ────────────────────────────────────
+function loadData() {
+  loadingMsg.textContent = 'データを読み込んでいます…';
+  loadingOverlay.classList.remove('hidden');
+
+  gasCall('getSheetData').then(function(rows) {
+    allRows = rows || [];
+    buildCaches();
+    loadingOverlay.classList.add('hidden');
+  }).catch(function(e) {
+    loadingMsg.textContent = '読み込みエラー: ' + e.message;
+    // スピナーを止める
+    var spinner = loadingOverlay.querySelector('.spinner');
+    if (spinner) spinner.style.display = 'none';
+  });
+}
+
+// ── キャッシュ構築 ────────────────────────────────────
+function buildCaches() {
+  productHistory = {};
+  var bizSet  = {};
+  var destSet = {};
+  DEFAULT_BUSINESSES.forEach(function(v)   { bizSet[v]  = true; });
+  DEFAULT_DESTINATIONS.forEach(function(v) { destSet[v] = true; });
+
+  allRows.forEach(function(row) {
+    var date      = String(row[COL.DATE]       || '');
+    var product   = String(row[COL.PRODUCT]    || '').trim();
+    var unitPrice = parseFloat(row[COL.UNIT_PRICE]) || 0;
+    var biz       = String(row[COL.BUSINESS]   || '').trim();
+    var dest      = String(row[COL.DESTINATION]|| '').trim();
+
+    if (product) {
+      if (!productHistory[product]) productHistory[product] = [];
+      productHistory[product].push({ date: date, unitPrice: unitPrice });
+    }
+    if (biz)  bizSet[biz]   = true;
+    if (dest) destSet[dest] = true;
+  });
+
+  businesses   = Object.keys(bizSet);
+  destinations = Object.keys(destSet);
+
+  populateSelect(fBusiness,         businesses,              getSaved('lastBusiness'));
+  populateSelect(fDestination,      destinations,            getSaved('lastDestination'));
+  populateSelect($('filter-dest'),  [''].concat(destinations), '');
+  populateSelect($('filter-biz'),   [''].concat(businesses),   '');
+  populateSelect($('inv-dest'),     [''].concat(destinations), '');
+}
+
+function populateSelect(sel, values, selected) {
+  if (!sel) return;
+  var prev = sel.value || selected;
+  sel.innerHTML = '';
+  values.forEach(function(v) {
+    var opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = v || 'すべて';
+    if (v === prev) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+// ── ナビゲーション ────────────────────────────────────
+function setupNavigation() {
+  document.querySelectorAll('.nav-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.nav-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      var viewId = 'view-' + btn.dataset.view;
+      document.querySelectorAll('.view').forEach(function(v) { v.classList.add('hidden'); });
+      $(viewId).classList.remove('hidden');
+      saveBar.style.display = btn.dataset.view === 'entry' ? '' : 'none';
+      if (btn.dataset.view === 'list') refreshListView();
+    });
+  });
+}
+
+// ── 入力フォーム ─────────────────────────────────────
+function setupEntryForm() {
+  fProduct.addEventListener('input', onProductInput);
+  fProduct.addEventListener('keydown', onProductKeydown);
+  fProduct.addEventListener('blur', function() {
+    // iOSではblurとpointerdownの順序が不定なため300ms待つ
+    setTimeout(hideSuggestions, 300);
+  });
+  fQty.addEventListener('input', updateAmount);
+  fPrice.addEventListener('input', updateAmount);
+  btnAddItem.addEventListener('click', addItem);
+
+  // Enter で次フィールドへ
+  [fProduct, fQty, fPrice].forEach(function(el, i) {
+    el.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !suggestions.classList.contains('hidden')) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (i === 0) fQty.focus();
+        else if (i === 1) fPrice.focus();
+        else addItem();
+      }
+    });
+  });
+
+  btnSave.addEventListener('click', saveToSheet);
+  btnClear.addEventListener('click', clearPending);
+
+  fBusiness.addEventListener('change', function()    { save('lastBusiness',    fBusiness.value); });
+  fDestination.addEventListener('change', function() { save('lastDestination', fDestination.value); });
+}
+
+// ── 品名サジェスト ────────────────────────────────────
+function onProductInput() {
+  var query = fProduct.value.trim();
+  if (!query) { hideSuggestions(); return; }
+
+  var matched = Object.keys(productHistory).filter(function(name) {
+    return name.indexOf(query) !== -1;
+  }).sort();
+
+  if (!matched.length) { hideSuggestions(); return; }
+
+  suggestions.innerHTML = '';
+  var header = document.createElement('li');
+  header.className = 'sug-header';
+  header.textContent = '履歴（最新単価を自動補完）';
+  suggestions.appendChild(header);
+
+  matched.forEach(function(name) {
+    var history = productHistory[name];
+    var latest  = history[history.length - 1];
+    var li = document.createElement('li');
+    li.innerHTML =
+      '<span class="sug-name">' + esc(name) + '</span>' +
+      '<span class="sug-meta">' +
+        '<span class="sug-price">¥' + latest.unitPrice.toLocaleString() + '</span>' +
+        '<span class="sug-date">' + esc(String(latest.date)) + '</span>' +
+      '</span>';
+    li.addEventListener('pointerdown', function(e) {
+      e.preventDefault();
+      selectProduct(name, latest.unitPrice);
+    });
+    suggestions.appendChild(li);
+  });
+  suggestions.classList.remove('hidden');
+}
+
+var focusedSugIdx = -1;
+function onProductKeydown(e) {
+  if (suggestions.classList.contains('hidden')) return;
+  var items = Array.from(suggestions.querySelectorAll('li:not(.sug-header)'));
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    focusedSugIdx = Math.min(focusedSugIdx + 1, items.length - 1);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    focusedSugIdx = Math.max(focusedSugIdx - 1, 0);
+  } else if (e.key === 'Enter' && focusedSugIdx >= 0) {
+    e.preventDefault();
+    items[focusedSugIdx].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    return;
+  } else if (e.key === 'Escape') {
+    hideSuggestions(); return;
+  }
+  items.forEach(function(li, i) { li.classList.toggle('focused', i === focusedSugIdx); });
+}
+
+function selectProduct(name, unitPrice) {
+  fProduct.value = name;
+  fPrice.value   = unitPrice;
+  focusedSugIdx  = -1;
+  hideSuggestions();
+  updateAmount();
+  fQty.focus();
+}
+
+function hideSuggestions() {
+  suggestions.classList.add('hidden');
+  focusedSugIdx = -1;
+}
+
+// ── 金額計算 ──────────────────────────────────────────
+function updateAmount() {
+  var qty    = parseFloat(fQty.value)   || 0;
+  var price  = parseFloat(fPrice.value) || 0;
+  var amount = qty * price;
+  fAmount.textContent = amount > 0 ? '¥' + amount.toLocaleString() : '—';
+}
+
+// ── 品目追加 ──────────────────────────────────────────
+function addItem() {
+  var product = fProduct.value.trim();
+  var qty     = parseFloat(fQty.value);
+  var price   = parseFloat(fPrice.value);
+  if (!product)        { fProduct.focus(); return; }
+  if (!qty || qty <= 0){ fQty.focus();     return; }
+  if (!price || price <= 0){ fPrice.focus(); return; }
+
+  pendingItems.push({ product: product, qty: qty, price: price, amount: qty * price });
+  renderPending();
+
+  fProduct.value = '';
+  fQty.value     = '';
+  fPrice.value   = '';
+  fAmount.textContent = '—';
+  fProduct.focus();
+}
+
+// ── 入力リスト描画 ────────────────────────────────────
+function renderPending() {
+  pendingTbody.innerHTML = '';
+  var total = 0;
+  pendingItems.forEach(function(item, i) {
+    total += item.amount;
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(item.product) + '</td>' +
+      '<td class="num">' + item.qty + '</td>' +
+      '<td class="num">¥' + item.price.toLocaleString() + '</td>' +
+      '<td class="num">¥' + item.amount.toLocaleString() + '</td>' +
+      '<td><button class="btn-del" data-i="' + i + '">削除</button></td>';
+    pendingTbody.appendChild(tr);
+  });
+  pendingTbody.querySelectorAll('.btn-del').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      pendingItems.splice(parseInt(btn.dataset.i), 1);
+      renderPending();
+    });
+  });
+  var totalStr = '¥' + total.toLocaleString();
+  pendingTotal.textContent = totalStr;
+  saveBarTotal.textContent = totalStr;
+  var hasItems = pendingItems.length > 0;
+  btnSave.disabled  = !hasItems;
+  btnClear.disabled = !hasItems;
+}
+
+// ── シートへ保存 ──────────────────────────────────────
+function saveToSheet() {
+  if (!pendingItems.length) return;
+  btnSave.disabled = true;
+  showStatus('保存中…', 'info');
+
+  var dateVal = formatDateJP(fDate.value);
+  var biz     = fBusiness.value;
+  var dest    = fDestination.value;
+
+  var rows = pendingItems.map(function(item) {
+    return [dateVal, item.product, item.qty, item.price, item.amount, biz, dest];
+  });
+
+  gasCall('appendRows', rows).then(function() {
+    // ローカルキャッシュに反映
+    pendingItems.forEach(function(item) {
+      if (!productHistory[item.product]) productHistory[item.product] = [];
+      productHistory[item.product].push({ date: dateVal, unitPrice: item.price });
+    });
+    Array.prototype.push.apply(allRows, rows);
+
+    pendingItems = [];
+    renderPending();
+    showStatus(rows.length + ' 件を保存しました。', 'success');
+    setTimeout(function() { saveStatus.classList.add('hidden'); }, 4000);
+  }).catch(function(e) {
+    showStatus('保存に失敗しました: ' + e.message, 'error');
+    btnSave.disabled = false;
+  });
+}
+
+function clearPending() {
+  if (!confirm('入力リストをクリアしますか？')) return;
+  pendingItems = [];
+  renderPending();
+}
+
+// ── 一覧ビュー ────────────────────────────────────────
+function setupListView() {
+  $('filter-month').value = new Date().toISOString().slice(0, 7);
+  $('btn-reload').addEventListener('click', function() {
+    showStatus('再読み込み中…', 'info');
+    gasCall('getSheetData').then(function(rows) {
+      allRows = rows || [];
+      buildCaches();
+      refreshListView();
+      showStatus(allRows.length + ' 件読み込みました。', 'success');
+      setTimeout(function() { saveStatus.classList.add('hidden'); }, 3000);
+    }).catch(function(e) { showStatus('エラー: ' + e.message, 'error'); });
+  });
+  $('filter-month').addEventListener('change', refreshListView);
+  $('filter-dest').addEventListener('change', refreshListView);
+  $('filter-biz').addEventListener('change', refreshListView);
+}
+
+function refreshListView() {
+  var month = $('filter-month').value;
+  var dest  = $('filter-dest').value;
+  var biz   = $('filter-biz').value;
+
+  var filtered = allRows.filter(function(row) {
+    return (!month || matchesMonth(String(row[COL.DATE] || ''), month))
+        && (!dest  || String(row[COL.DESTINATION] || '') === dest)
+        && (!biz   || String(row[COL.BUSINESS]    || '') === biz);
+  });
+
+  var tbody = $('list-tbody');
+  tbody.innerHTML = '';
+  var total = 0;
+  filtered.forEach(function(row) {
+    var amount = parseFloat(row[COL.AMOUNT]) || 0;
+    total += amount;
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(String(row[0]||'')) + '</td>' +
+      '<td>' + esc(String(row[1]||'')) + '</td>' +
+      '<td class="num">' + (row[2]||'') + '</td>' +
+      '<td class="num">' + (row[3]||'') + '</td>' +
+      '<td class="num">¥' + amount.toLocaleString() + '</td>' +
+      '<td>' + esc(String(row[5]||'')) + '</td>' +
+      '<td>' + esc(String(row[6]||'')) + '</td>';
+    tbody.appendChild(tr);
+  });
+  $('list-summary').textContent = filtered.length + ' 件　合計: ¥' + total.toLocaleString();
+}
+
+// ── 請求書ビュー ──────────────────────────────────────
+function setupInvoiceView() {
+  $('inv-month').value = new Date().toISOString().slice(0, 7);
+  $('btn-gen-invoice').addEventListener('click', generateInvoice);
+  $('btn-print').addEventListener('click', function() { window.print(); });
+  $('btn-export-xlsx').addEventListener('click', exportXlsx);
+
+  document.querySelectorAll('.tab-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.add('hidden'); });
+      $('tab-' + btn.dataset.tab).classList.remove('hidden');
+    });
+  });
+}
+
+function generateInvoice() {
+  var month      = $('inv-month').value;
+  var dest       = $('inv-dest').value;
+  var monthRows  = allRows.filter(function(r) { return matchesMonth(String(r[COL.DATE]||''), month); });
+  renderInvoice($('invoice-preview'), monthRows, dest, month);
+  renderSummary($('summary-tbody'), $('summary-grand-total'), monthRows, month);
+  $('summary-title').textContent = '月次サマリー（' + formatMonthJP(month) + '）';
+}
+
+function exportXlsx() {
+  var month     = $('inv-month').value;
+  var dest      = $('inv-dest').value;
+  var monthRows = allRows.filter(function(r) { return matchesMonth(String(r[COL.DATE]||''), month); });
+  exportInvoiceXlsx(monthRows, dest, month);
+}
+
+// ── 請求書描画 ────────────────────────────────────────
+function renderInvoice(container, monthRows, destination, ym) {
+  var filtered = destination
+    ? monthRows.filter(function(r) { return String(r[COL.DESTINATION]||'') === destination; })
+    : monthRows;
+
+  if (!filtered.length) {
+    container.innerHTML = '<p class="invoice-placeholder">対象データがありません。</p>';
+    return;
+  }
+
+  var total = filtered.reduce(function(s, r) { return s + (parseFloat(r[COL.AMOUNT])||0); }, 0);
+  var destLabel = destination || '（全納品先）';
+
+  var rows = filtered.map(function(r) {
+    return '<tr>' +
+      '<td>' + esc(String(r[COL.DATE]||'')) + '</td>' +
+      '<td>' + esc(String(r[COL.PRODUCT]||'')) + '</td>' +
+      '<td class="num">' + (r[COL.QTY]||'') + '</td>' +
+      '<td class="num">¥' + (parseFloat(r[COL.UNIT_PRICE])||0).toLocaleString() + '</td>' +
+      '<td class="num">¥' + (parseFloat(r[COL.AMOUNT])||0).toLocaleString() + '</td>' +
+      '</tr>';
+  }).join('');
+
+  container.innerHTML =
+    '<div class="invoice-doc" id="invoice-content">' +
+      '<h2>御 請 求 書</h2>' +
+      '<div class="invoice-meta">' +
+        '<div>' +
+          '<div class="invoice-to">' + esc(destLabel) + ' 御中</div>' +
+          '<div style="font-size:12px;color:#6b7280;margin-top:4px">下記の通りご請求申し上げます。</div>' +
+        '</div>' +
+        '<div style="text-align:right">' +
+          '<div class="invoice-period" style="color:#6b7280">' + formatMonthJP(ym) + '分</div>' +
+          '<div class="invoice-grand">合計 ¥' + total.toLocaleString() + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="table-wrap">' +
+        '<table class="data-table">' +
+          '<thead><tr><th>日付</th><th>品名</th><th class="num">数量</th><th class="num">単価</th><th class="num">金額</th></tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+          '<tfoot><tr style="font-weight:700;background:#e8f5ee">' +
+            '<td colspan="4" style="text-align:right;padding:8px 10px">合計</td>' +
+            '<td class="num" style="padding:8px 10px">¥' + total.toLocaleString() + '</td>' +
+          '</tr></tfoot>' +
+        '</table>' +
+      '</div>' +
+    '</div>';
+}
+
+// ── 月次サマリー描画 ──────────────────────────────────
+function renderSummary(tbody, totalEl, monthRows, ym) {
+  var groups = {};
+  monthRows.forEach(function(r) {
+    var biz    = String(r[COL.BUSINESS]   ||'（不明）');
+    var dest   = String(r[COL.DESTINATION]||'（不明）');
+    var key    = biz + '\t' + dest;
+    var amount = parseFloat(r[COL.AMOUNT]) || 0;
+    groups[key] = (groups[key] || 0) + amount;
+  });
+
+  tbody.innerHTML = '';
+  var grand = 0;
+  var entries = Object.keys(groups).sort();
+  entries.forEach(function(key) {
+    var amount = groups[key];
+    var parts  = key.split('\t');
+    grand += amount;
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(parts[0]) + '</td>' +
+      '<td>' + esc(parts[1]) + '</td>' +
+      '<td class="num">¥' + amount.toLocaleString() + '</td>';
+    tbody.appendChild(tr);
+  });
+  totalEl.textContent = '合計: ¥' + grand.toLocaleString() + '（' + formatMonthJP(ym) + '・' + entries.length + ' 区分）';
+}
+
+// ── Excel出力 ─────────────────────────────────────────
+function exportInvoiceXlsx(monthRows, destination, ym) {
+  var filtered = destination
+    ? monthRows.filter(function(r) { return String(r[COL.DESTINATION]||'') === destination; })
+    : monthRows;
+
+  if (!filtered.length) { alert('対象データがありません。'); return; }
+
+  var destLabel = destination || '全納品先';
+  var total = filtered.reduce(function(s, r) { return s + (parseFloat(r[COL.AMOUNT])||0); }, 0);
+
+  var invoiceData = [
+    ['御請求書'],
+    [destLabel + ' 御中', '', '', '', formatMonthJP(ym) + '分'],
+    [],
+    ['日付', '品名', '数量', '単価', '金額'],
+  ].concat(filtered.map(function(r) {
+    return [
+      String(r[COL.DATE]||''), String(r[COL.PRODUCT]||''),
+      parseFloat(r[COL.QTY])||0, parseFloat(r[COL.UNIT_PRICE])||0, parseFloat(r[COL.AMOUNT])||0
+    ];
+  })).concat([[], ['', '', '', '合計', total]]);
+
+  var groups = {};
+  monthRows.forEach(function(r) {
+    var key    = String(r[COL.BUSINESS]||'不明') + '\t' + String(r[COL.DESTINATION]||'不明');
+    var amount = parseFloat(r[COL.AMOUNT]) || 0;
+    groups[key] = (groups[key] || 0) + amount;
+  });
+  var summaryData = [['月次サマリー ' + formatMonthJP(ym)], ['事業', '納品先', '金額合計']]
+    .concat(Object.keys(groups).sort().map(function(key) {
+      var p = key.split('\t');
+      return [p[0], p[1], groups[key]];
+    }));
+
+  var wb = XLSX.utils.book_new();
+  var wsInv = XLSX.utils.aoa_to_sheet(invoiceData);
+  wsInv['!cols'] = [{wch:14},{wch:20},{wch:8},{wch:10},{wch:12}];
+  wsInv['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:4} }];
+  XLSX.utils.book_append_sheet(wb, wsInv, '請求書_' + destLabel);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryData), '月次サマリー');
+  XLSX.writeFile(wb, '請求書_' + destLabel + '_' + ym + '.xlsx');
+}
+
+// ── ユーティリティ ────────────────────────────────────
+function formatDateJP(isoDate) {
+  if (!isoDate) return '';
+  var d = new Date(isoDate + 'T00:00:00');
+  return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+}
+
+function formatMonthJP(ym) {
+  if (!ym) return '';
+  var parts = ym.split('-');
+  return parts[0] + '年' + parseInt(parts[1]) + '月';
+}
+
+function matchesMonth(dateStr, ym) {
+  if (!ym) return true;
+  var month = parseInt(ym.split('-')[1]);
+  var jp    = dateStr.match(/^(\d+)月/);
+  if (jp) return parseInt(jp[1]) === month;
+  var slash = dateStr.match(/^\d{4}\/(\d+)\//);
+  if (slash) return parseInt(slash[1]) === month;
+  var iso   = dateStr.match(/^\d{4}-(\d{2})-/);
+  if (iso) return parseInt(iso[1]) === month;
+  return false;
+}
+
+function showStatus(msg, type) {
+  saveStatus.textContent = msg;
+  saveStatus.className   = 'save-status ' + type;
+  saveStatus.classList.remove('hidden');
+}
+
+function save(key, val) { try { localStorage.setItem('fda_' + key, val); } catch(e){} }
+function getSaved(key)  { try { return localStorage.getItem('fda_' + key) || ''; } catch(e){ return ''; } }
+
+// XSSを防ぐエスケープ
+function esc(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+</script>

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <?!= include('style') ?>
+</head>
+<body>
+  <header class="header">
+    <h1 class="header-title">農場配達管理</h1>
+    <nav class="nav">
+      <button class="nav-btn active" data-view="entry">入力</button>
+      <button class="nav-btn" data-view="list">一覧</button>
+      <button class="nav-btn" data-view="invoice">請求書</button>
+    </nav>
+  </header>
+
+  <main class="main">
+    <!-- ========== 入力ビュー ========== -->
+    <section id="view-entry" class="view">
+      <div class="card">
+        <div class="common-fields">
+          <div class="field-group">
+            <label for="f-date">日付</label>
+            <input type="date" id="f-date" class="input">
+          </div>
+          <div class="field-group">
+            <label for="f-business">事業</label>
+            <select id="f-business" class="input"></select>
+          </div>
+          <div class="field-group">
+            <label for="f-destination">納品先</label>
+            <select id="f-destination" class="input"></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">品目追加</h2>
+        <div class="item-fields">
+          <div class="field-group field-group--product">
+            <label for="f-product">品名</label>
+            <div class="product-input-wrap">
+              <input type="text" id="f-product" class="input"
+                     placeholder="品名を入力..."
+                     autocomplete="off" autocorrect="off"
+                     autocapitalize="none" spellcheck="false">
+              <ul id="product-suggestions" class="suggestions hidden"></ul>
+            </div>
+          </div>
+          <div class="field-group field-group--qty">
+            <label for="f-qty">数量</label>
+            <input type="number" id="f-qty" class="input"
+                   min="0" step="0.1" placeholder="0" inputmode="decimal">
+          </div>
+          <div class="field-group field-group--price">
+            <label for="f-price">単価</label>
+            <input type="number" id="f-price" class="input"
+                   min="0" step="1" placeholder="0" inputmode="numeric">
+          </div>
+          <div class="field-group field-group--amount">
+            <label>金額</label>
+            <div id="f-amount" class="amount-display">—</div>
+          </div>
+          <div class="field-group field-group--btn">
+            <button id="btn-add-item" class="btn btn--primary btn-add-full">追加</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="pending-card">
+        <div class="pending-header">
+          <h2 class="card-title" style="margin-bottom:0">入力リスト</h2>
+          <div class="pending-total">合計: <strong id="pending-total">¥0</strong></div>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>品名</th>
+                <th class="num">数量</th>
+                <th class="num">単価</th>
+                <th class="num">金額</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="pending-tbody"></tbody>
+          </table>
+        </div>
+        <div id="save-status" class="save-status hidden"></div>
+      </div>
+    </section>
+
+    <!-- ========== 一覧ビュー ========== -->
+    <section id="view-list" class="view hidden">
+      <div class="card">
+        <div class="list-filters">
+          <div class="field-group">
+            <label for="filter-month">月</label>
+            <input type="month" id="filter-month" class="input">
+          </div>
+          <div class="field-group">
+            <label for="filter-dest">納品先</label>
+            <select id="filter-dest" class="input"><option value="">すべて</option></select>
+          </div>
+          <div class="field-group">
+            <label for="filter-biz">事業</label>
+            <select id="filter-biz" class="input"><option value="">すべて</option></select>
+          </div>
+          <button id="btn-reload" class="btn btn--primary">再読み込み</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>日付</th><th>品名</th>
+                <th class="num">数量</th><th class="num">単価</th>
+                <th class="num">金額</th><th>事業</th><th>納品先</th>
+              </tr>
+            </thead>
+            <tbody id="list-tbody"></tbody>
+          </table>
+        </div>
+        <div class="list-summary" id="list-summary"></div>
+      </div>
+    </section>
+
+    <!-- ========== 請求書ビュー ========== -->
+    <section id="view-invoice" class="view hidden">
+      <div class="card no-print">
+        <div class="invoice-controls">
+          <div class="field-group">
+            <label for="inv-month">月</label>
+            <input type="month" id="inv-month" class="input">
+          </div>
+          <div class="field-group">
+            <label for="inv-dest">納品先</label>
+            <select id="inv-dest" class="input"><option value="">選択してください</option></select>
+          </div>
+          <button id="btn-gen-invoice" class="btn btn--primary">表示</button>
+          <button id="btn-print"       class="btn btn--ghost">印刷 / PDF</button>
+          <button id="btn-export-xlsx" class="btn btn--ghost">Excel出力</button>
+        </div>
+        <div class="tab-bar">
+          <button class="tab-btn active" data-tab="invoice-detail">請求書</button>
+          <button class="tab-btn"        data-tab="invoice-summary">月次サマリー</button>
+        </div>
+      </div>
+
+      <div id="tab-invoice-detail" class="tab-content">
+        <div id="invoice-preview" class="invoice-preview card">
+          <p class="invoice-placeholder">月と納品先を選択して「表示」をタップしてください。</p>
+        </div>
+      </div>
+
+      <div id="tab-invoice-summary" class="tab-content hidden">
+        <div class="card">
+          <h2 class="card-title" id="summary-title">月次サマリー</h2>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>事業</th><th>納品先</th><th class="num">金額合計</th>
+                </tr>
+              </thead>
+              <tbody id="summary-tbody"></tbody>
+            </table>
+          </div>
+          <div class="list-summary" id="summary-grand-total"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 読み込みオーバーレイ -->
+    <div id="loading-overlay" class="auth-overlay">
+      <div class="auth-overlay-inner">
+        <h2>農場配達管理</h2>
+        <p id="loading-msg">データを読み込んでいます…</p>
+        <div class="spinner"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 固定保存バー -->
+  <div class="save-bar" id="save-bar">
+    <span class="save-bar-total" id="save-bar-total">¥0</span>
+    <button id="btn-save"  class="btn btn--save"  disabled>シートに保存</button>
+    <button id="btn-clear" class="btn btn--ghost" disabled>クリア</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <?!= include('script') ?>
+</body>
+</html>
