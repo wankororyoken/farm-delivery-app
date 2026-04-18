@@ -123,8 +123,10 @@ function setupNavigation() {
 
 // ── 入力フォーム ─────────────────────────────────────
 function setupEntryForm() {
+  var programmaticFocus = false; // addItem()などからの自動focus時はスクロールしない
   fProduct.addEventListener('focus', function() {
-    // キーボード表示後に入力欄をヘッダー直下へスクロール
+    if (programmaticFocus) { programmaticFocus = false; return; }
+    // ユーザーが手動でタップした時だけスクロール
     setTimeout(function() {
       var card    = fProduct.closest('.card');
       var headerH = document.querySelector('.header').offsetHeight;
@@ -305,6 +307,7 @@ function addItem() {
   fQty.value     = '';
   fPrice.value   = '';
   fAmount.textContent = '—';
+  programmaticFocus = true;
   fProduct.focus();
 }
 
