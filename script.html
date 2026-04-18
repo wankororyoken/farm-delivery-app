@@ -12,15 +12,16 @@ function gasCall(fnName, arg) {
 
 // ── 定数 ─────────────────────────────────────────────
 var COL = { DATE:0, PRODUCT:1, QTY:2, UNIT_PRICE:3, AMOUNT:4, BUSINESS:5, DESTINATION:6 };
-var DEFAULT_BUSINESSES   = ['農場'];
-var DEFAULT_DESTINATIONS = ['なのはな食堂'];
 
 // ── 状態 ─────────────────────────────────────────────
-var allRows        = [];
 var pendingItems   = [];
 var productHistory = {};  // { "人参": [{date, unitPrice}] }
 var businesses     = [];
 var destinations   = [];
+
+// 一覧・請求書用キャッシュ（月ごと）
+var cachedRows  = [];
+var cachedMonth = null;
 
 // ── DOM参照 ──────────────────────────────────────────
 function $(id) { return document.getElementById(id); }
@@ -42,7 +43,7 @@ var saveBarTotal = $('save-bar-total');
 var saveStatus   = $('save-status');
 var suggestions  = $('product-suggestions');
 var loadingOverlay = $('loading-overlay');
-var loadingMsg   = $('loading-msg');
+var loadingMsg     = $('loading-msg');
 
 // ── 起動 ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
@@ -51,62 +52,34 @@ document.addEventListener('DOMContentLoaded', function() {
   setupEntryForm();
   setupListView();
   setupInvoiceView();
-  loadData();
+  loadMetadata();
 });
 
 function setDefaultDate() {
-  var today = new Date();
-  fDate.value = today.toISOString().slice(0, 10);
+  fDate.value = new Date().toISOString().slice(0, 10);
 }
 
-// ── データ読み込み ────────────────────────────────────
-function loadData() {
-  loadingMsg.textContent = 'データを読み込んでいます…';
-  loadingOverlay.classList.remove('hidden');
-
-  gasCall('getSheetData').then(function(rows) {
-    allRows = rows || [];
-    buildCaches();
-    loadingOverlay.classList.add('hidden');
+// ── メタデータ読み込み（起動時、軽量） ────────────────
+function loadMetadata() {
+  showOverlay('選択肢を読み込んでいます…');
+  gasCall('getMetadata').then(function(meta) {
+    productHistory = meta.products || {};
+    businesses     = meta.businesses   || [];
+    destinations   = meta.destinations || [];
+    buildDropdowns();
+    hideOverlay();
   }).catch(function(e) {
-    loadingMsg.textContent = '読み込みエラー: ' + e.message;
-    // スピナーを止める
-    var spinner = loadingOverlay.querySelector('.spinner');
-    if (spinner) spinner.style.display = 'none';
+    showOverlayError('読み込みエラー: ' + e.message);
   });
 }
 
-// ── キャッシュ構築 ────────────────────────────────────
-function buildCaches() {
-  productHistory = {};
-  var bizSet  = {};
-  var destSet = {};
-  DEFAULT_BUSINESSES.forEach(function(v)   { bizSet[v]  = true; });
-  DEFAULT_DESTINATIONS.forEach(function(v) { destSet[v] = true; });
-
-  allRows.forEach(function(row) {
-    var date      = String(row[COL.DATE]       || '');
-    var product   = String(row[COL.PRODUCT]    || '').trim();
-    var unitPrice = parseFloat(row[COL.UNIT_PRICE]) || 0;
-    var biz       = String(row[COL.BUSINESS]   || '').trim();
-    var dest      = String(row[COL.DESTINATION]|| '').trim();
-
-    if (product) {
-      if (!productHistory[product]) productHistory[product] = [];
-      productHistory[product].push({ date: date, unitPrice: unitPrice });
-    }
-    if (biz)  bizSet[biz]   = true;
-    if (dest) destSet[dest] = true;
-  });
-
-  businesses   = Object.keys(bizSet);
-  destinations = Object.keys(destSet);
-
-  populateSelect(fBusiness,         businesses,              getSaved('lastBusiness'));
-  populateSelect(fDestination,      destinations,            getSaved('lastDestination'));
-  populateSelect($('filter-dest'),  [''].concat(destinations), '');
-  populateSelect($('filter-biz'),   [''].concat(businesses),   '');
-  populateSelect($('inv-dest'),     [''].concat(destinations), '');
+// ── ドロップダウン構築 ────────────────────────────────
+function buildDropdowns() {
+  populateSelect(fBusiness,        businesses,              getSaved('lastBusiness'));
+  populateSelect(fDestination,     destinations,            getSaved('lastDestination'));
+  populateSelect($('filter-dest'), [''].concat(destinations), '');
+  populateSelect($('filter-biz'),  [''].concat(businesses),   '');
+  populateSelect($('inv-dest'),    [''].concat(destinations), '');
 }
 
 function populateSelect(sel, values, selected) {
@@ -122,15 +95,26 @@ function populateSelect(sel, values, selected) {
   });
 }
 
+// ── 月データ取得（キャッシュ付き） ───────────────────
+function loadRowsForMonth(month) {
+  if (cachedMonth === month && cachedRows.length) {
+    return Promise.resolve(cachedRows);
+  }
+  return gasCall('getSheetData', month).then(function(rows) {
+    cachedRows  = rows || [];
+    cachedMonth = month;
+    return cachedRows;
+  });
+}
+
 // ── ナビゲーション ────────────────────────────────────
 function setupNavigation() {
   document.querySelectorAll('.nav-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
       document.querySelectorAll('.nav-btn').forEach(function(b) { b.classList.remove('active'); });
       btn.classList.add('active');
-      var viewId = 'view-' + btn.dataset.view;
       document.querySelectorAll('.view').forEach(function(v) { v.classList.add('hidden'); });
-      $(viewId).classList.remove('hidden');
+      $('view-' + btn.dataset.view).classList.remove('hidden');
       saveBar.style.display = btn.dataset.view === 'entry' ? '' : 'none';
       if (btn.dataset.view === 'list') refreshListView();
     });
@@ -142,14 +126,12 @@ function setupEntryForm() {
   fProduct.addEventListener('input', onProductInput);
   fProduct.addEventListener('keydown', onProductKeydown);
   fProduct.addEventListener('blur', function() {
-    // iOSではblurとpointerdownの順序が不定なため300ms待つ
     setTimeout(hideSuggestions, 300);
   });
   fQty.addEventListener('input', updateAmount);
   fPrice.addEventListener('input', updateAmount);
   btnAddItem.addEventListener('click', addItem);
 
-  // Enter で次フィールドへ
   [fProduct, fQty, fPrice].forEach(function(el, i) {
     el.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && !suggestions.classList.contains('hidden')) return;
@@ -164,7 +146,6 @@ function setupEntryForm() {
 
   btnSave.addEventListener('click', saveToSheet);
   btnClear.addEventListener('click', clearPending);
-
   fBusiness.addEventListener('change', function()    { save('lastBusiness',    fBusiness.value); });
   fDestination.addEventListener('change', function() { save('lastDestination', fDestination.value); });
 }
@@ -193,8 +174,8 @@ function onProductInput() {
     li.innerHTML =
       '<span class="sug-name">' + esc(name) + '</span>' +
       '<span class="sug-meta">' +
-        '<span class="sug-price">¥' + latest.unitPrice.toLocaleString() + '</span>' +
-        '<span class="sug-date">' + esc(String(latest.date)) + '</span>' +
+        '<span class="sug-price">¥' + (latest.unitPrice||0).toLocaleString() + '</span>' +
+        '<span class="sug-date">' + esc(String(latest.date||'')) + '</span>' +
       '</span>';
     li.addEventListener('pointerdown', function(e) {
       e.preventDefault();
@@ -227,7 +208,7 @@ function onProductKeydown(e) {
 
 function selectProduct(name, unitPrice) {
   fProduct.value = name;
-  fPrice.value   = unitPrice;
+  fPrice.value   = unitPrice || '';
   focusedSugIdx  = -1;
   hideSuggestions();
   updateAmount();
@@ -252,9 +233,9 @@ function addItem() {
   var product = fProduct.value.trim();
   var qty     = parseFloat(fQty.value);
   var price   = parseFloat(fPrice.value);
-  if (!product)        { fProduct.focus(); return; }
-  if (!qty || qty <= 0){ fQty.focus();     return; }
-  if (!price || price <= 0){ fPrice.focus(); return; }
+  if (!product)         { fProduct.focus(); return; }
+  if (!qty || qty <= 0) { fQty.focus();     return; }
+  if (!price || price <= 0) { fPrice.focus(); return; }
 
   pendingItems.push({ product: product, qty: qty, price: price, amount: qty * price });
   renderPending();
@@ -310,12 +291,13 @@ function saveToSheet() {
   });
 
   gasCall('appendRows', rows).then(function() {
-    // ローカルキャッシュに反映
+    // 品名履歴をローカルに反映
     pendingItems.forEach(function(item) {
       if (!productHistory[item.product]) productHistory[item.product] = [];
       productHistory[item.product].push({ date: dateVal, unitPrice: item.price });
     });
-    Array.prototype.push.apply(allRows, rows);
+    // 月キャッシュを無効化（次回一覧表示時に再取得）
+    cachedMonth = null;
 
     pendingItems = [];
     renderPending();
@@ -337,29 +319,30 @@ function clearPending() {
 function setupListView() {
   $('filter-month').value = new Date().toISOString().slice(0, 7);
   $('btn-reload').addEventListener('click', function() {
-    showStatus('再読み込み中…', 'info');
-    gasCall('getSheetData').then(function(rows) {
-      allRows = rows || [];
-      buildCaches();
-      refreshListView();
-      showStatus(allRows.length + ' 件読み込みました。', 'success');
-      setTimeout(function() { saveStatus.classList.add('hidden'); }, 3000);
-    }).catch(function(e) { showStatus('エラー: ' + e.message, 'error'); });
+    cachedMonth = null; // キャッシュ破棄して強制再取得
+    refreshListView();
   });
   $('filter-month').addEventListener('change', refreshListView);
-  $('filter-dest').addEventListener('change', refreshListView);
-  $('filter-biz').addEventListener('change', refreshListView);
+  $('filter-dest').addEventListener('change', function() { renderListTable(cachedRows); });
+  $('filter-biz').addEventListener('change',  function() { renderListTable(cachedRows); });
 }
 
 function refreshListView() {
   var month = $('filter-month').value;
-  var dest  = $('filter-dest').value;
-  var biz   = $('filter-biz').value;
+  showStatus('読み込み中…', 'info');
+  loadRowsForMonth(month).then(function(rows) {
+    renderListTable(rows);
+    saveStatus.classList.add('hidden');
+  }).catch(function(e) { showStatus('エラー: ' + e.message, 'error'); });
+}
 
-  var filtered = allRows.filter(function(row) {
-    return (!month || matchesMonth(String(row[COL.DATE] || ''), month))
-        && (!dest  || String(row[COL.DESTINATION] || '') === dest)
-        && (!biz   || String(row[COL.BUSINESS]    || '') === biz);
+function renderListTable(rows) {
+  var dest = $('filter-dest').value;
+  var biz  = $('filter-biz').value;
+
+  var filtered = rows.filter(function(row) {
+    return (!dest || String(row[COL.DESTINATION]||'') === dest)
+        && (!biz  || String(row[COL.BUSINESS]   ||'') === biz);
   });
 
   var tbody = $('list-tbody');
@@ -400,19 +383,25 @@ function setupInvoiceView() {
 }
 
 function generateInvoice() {
-  var month      = $('inv-month').value;
-  var dest       = $('inv-dest').value;
-  var monthRows  = allRows.filter(function(r) { return matchesMonth(String(r[COL.DATE]||''), month); });
-  renderInvoice($('invoice-preview'), monthRows, dest, month);
-  renderSummary($('summary-tbody'), $('summary-grand-total'), monthRows, month);
-  $('summary-title').textContent = '月次サマリー（' + formatMonthJP(month) + '）';
+  var month = $('inv-month').value;
+  var dest  = $('inv-dest').value;
+  $('invoice-preview').innerHTML = '<p class="invoice-placeholder">読み込み中…</p>';
+
+  loadRowsForMonth(month).then(function(rows) {
+    renderInvoice($('invoice-preview'), rows, dest, month);
+    renderSummary($('summary-tbody'), $('summary-grand-total'), rows, month);
+    $('summary-title').textContent = '月次サマリー（' + formatMonthJP(month) + '）';
+  }).catch(function(e) {
+    $('invoice-preview').innerHTML = '<p class="invoice-placeholder">エラー: ' + esc(e.message) + '</p>';
+  });
 }
 
 function exportXlsx() {
-  var month     = $('inv-month').value;
-  var dest      = $('inv-dest').value;
-  var monthRows = allRows.filter(function(r) { return matchesMonth(String(r[COL.DATE]||''), month); });
-  exportInvoiceXlsx(monthRows, dest, month);
+  var month = $('inv-month').value;
+  var dest  = $('inv-dest').value;
+  loadRowsForMonth(month).then(function(rows) {
+    exportInvoiceXlsx(rows, dest, month);
+  });
 }
 
 // ── 請求書描画 ────────────────────────────────────────
@@ -448,7 +437,7 @@ function renderInvoice(container, monthRows, destination, ym) {
           '<div style="font-size:12px;color:#6b7280;margin-top:4px">下記の通りご請求申し上げます。</div>' +
         '</div>' +
         '<div style="text-align:right">' +
-          '<div class="invoice-period" style="color:#6b7280">' + formatMonthJP(ym) + '分</div>' +
+          '<div style="color:#6b7280">' + formatMonthJP(ym) + '分</div>' +
           '<div class="invoice-grand">合計 ¥' + total.toLocaleString() + '</div>' +
         '</div>' +
       '</div>' +
@@ -472,8 +461,7 @@ function renderSummary(tbody, totalEl, monthRows, ym) {
     var biz    = String(r[COL.BUSINESS]   ||'（不明）');
     var dest   = String(r[COL.DESTINATION]||'（不明）');
     var key    = biz + '\t' + dest;
-    var amount = parseFloat(r[COL.AMOUNT]) || 0;
-    groups[key] = (groups[key] || 0) + amount;
+    groups[key] = (groups[key] || 0) + (parseFloat(r[COL.AMOUNT]) || 0);
   });
 
   tbody.innerHTML = '';
@@ -510,17 +498,14 @@ function exportInvoiceXlsx(monthRows, destination, ym) {
     [],
     ['日付', '品名', '数量', '単価', '金額'],
   ].concat(filtered.map(function(r) {
-    return [
-      String(r[COL.DATE]||''), String(r[COL.PRODUCT]||''),
-      parseFloat(r[COL.QTY])||0, parseFloat(r[COL.UNIT_PRICE])||0, parseFloat(r[COL.AMOUNT])||0
-    ];
+    return [String(r[COL.DATE]||''), String(r[COL.PRODUCT]||''),
+            parseFloat(r[COL.QTY])||0, parseFloat(r[COL.UNIT_PRICE])||0, parseFloat(r[COL.AMOUNT])||0];
   })).concat([[], ['', '', '', '合計', total]]);
 
   var groups = {};
   monthRows.forEach(function(r) {
-    var key    = String(r[COL.BUSINESS]||'不明') + '\t' + String(r[COL.DESTINATION]||'不明');
-    var amount = parseFloat(r[COL.AMOUNT]) || 0;
-    groups[key] = (groups[key] || 0) + amount;
+    var key = String(r[COL.BUSINESS]||'不明') + '\t' + String(r[COL.DESTINATION]||'不明');
+    groups[key] = (groups[key] || 0) + (parseFloat(r[COL.AMOUNT]) || 0);
   });
   var summaryData = [['月次サマリー ' + formatMonthJP(ym)], ['事業', '納品先', '金額合計']]
     .concat(Object.keys(groups).sort().map(function(key) {
@@ -537,6 +522,22 @@ function exportInvoiceXlsx(monthRows, destination, ym) {
   XLSX.writeFile(wb, '請求書_' + destLabel + '_' + ym + '.xlsx');
 }
 
+// ── オーバーレイ制御 ──────────────────────────────────
+function showOverlay(msg) {
+  loadingMsg.textContent = msg;
+  var spinner = loadingOverlay.querySelector('.spinner');
+  if (spinner) spinner.style.display = '';
+  loadingOverlay.classList.remove('hidden');
+}
+function hideOverlay() {
+  loadingOverlay.classList.add('hidden');
+}
+function showOverlayError(msg) {
+  loadingMsg.textContent = msg;
+  var spinner = loadingOverlay.querySelector('.spinner');
+  if (spinner) spinner.style.display = 'none';
+}
+
 // ── ユーティリティ ────────────────────────────────────
 function formatDateJP(isoDate) {
   if (!isoDate) return '';
@@ -546,20 +547,8 @@ function formatDateJP(isoDate) {
 
 function formatMonthJP(ym) {
   if (!ym) return '';
-  var parts = ym.split('-');
-  return parts[0] + '年' + parseInt(parts[1]) + '月';
-}
-
-function matchesMonth(dateStr, ym) {
-  if (!ym) return true;
-  var month = parseInt(ym.split('-')[1]);
-  var jp    = dateStr.match(/^(\d+)月/);
-  if (jp) return parseInt(jp[1]) === month;
-  var slash = dateStr.match(/^\d{4}\/(\d+)\//);
-  if (slash) return parseInt(slash[1]) === month;
-  var iso   = dateStr.match(/^\d{4}-(\d{2})-/);
-  if (iso) return parseInt(iso[1]) === month;
-  return false;
+  var p = ym.split('-');
+  return p[0] + '年' + parseInt(p[1]) + '月';
 }
 
 function showStatus(msg, type) {
@@ -568,15 +557,12 @@ function showStatus(msg, type) {
   saveStatus.classList.remove('hidden');
 }
 
-function save(key, val) { try { localStorage.setItem('fda_' + key, val); } catch(e){} }
-function getSaved(key)  { try { return localStorage.getItem('fda_' + key) || ''; } catch(e){ return ''; } }
+function save(key, val)  { try { localStorage.setItem('fda_' + key, val); } catch(e){} }
+function getSaved(key)   { try { return localStorage.getItem('fda_' + key) || ''; } catch(e){ return ''; } }
 
-// XSSを防ぐエスケープ
 function esc(str) {
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
