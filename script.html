@@ -128,6 +128,12 @@ function setupEntryForm() {
   fProduct.addEventListener('blur', function() {
     setTimeout(hideSuggestions, 300);
   });
+  // キーボード表示に合わせてサジェスト位置を調整
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function() {
+      if (!suggestions.classList.contains('hidden')) positionSuggestions();
+    });
+  }
   fQty.addEventListener('input', updateAmount);
   fPrice.addEventListener('input', updateAmount);
   btnAddItem.addEventListener('click', addItem);
@@ -177,13 +183,40 @@ function onProductInput() {
         '<span class="sug-price">¥' + (latest.unitPrice||0).toLocaleString() + '</span>' +
         '<span class="sug-date">' + esc(String(latest.date||'')) + '</span>' +
       '</span>';
-    li.addEventListener('pointerdown', function(e) {
+    // touchstart + preventDefault でiOSのSafariツールチップを抑制
+    li.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      selectProduct(name, latest.unitPrice);
+    }, { passive: false });
+    // マウス操作のフォールバック
+    li.addEventListener('mousedown', function(e) {
       e.preventDefault();
       selectProduct(name, latest.unitPrice);
     });
     suggestions.appendChild(li);
   });
   suggestions.classList.remove('hidden');
+  positionSuggestions();
+}
+
+// キーボード表示時にサジェストを上向きに切り替え
+function positionSuggestions() {
+  var vvHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  var rect     = fProduct.getBoundingClientRect();
+  var below    = vvHeight - rect.bottom - 8;
+  var above    = rect.top - 8;
+
+  if (below < 180 && above > below) {
+    // 上向き表示
+    suggestions.style.top    = 'auto';
+    suggestions.style.bottom = rect.height + 'px';
+    suggestions.style.maxHeight = Math.min(above, 260) + 'px';
+  } else {
+    // 下向き表示（デフォルト）
+    suggestions.style.top    = '100%';
+    suggestions.style.bottom = 'auto';
+    suggestions.style.maxHeight = Math.min(below, 260) + 'px';
+  }
 }
 
 var focusedSugIdx = -1;
