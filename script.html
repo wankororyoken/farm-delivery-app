@@ -542,13 +542,37 @@ function showOverlayError(msg) {
 function formatDateJP(isoDate) {
   if (!isoDate) return '';
   var d = new Date(isoDate + 'T00:00:00');
-  return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  // 年を含めて保存（年またぎのフィルタに対応）
+  return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
 }
 
 function formatMonthJP(ym) {
   if (!ym) return '';
   var p = ym.split('-');
   return p[0] + '年' + parseInt(p[1]) + '月';
+}
+
+// 日付文字列から { year, month } を抽出（コード.gsと同じロジック）
+function extractYearMonth(str) {
+  str = String(str || '');
+  var jpFull = str.match(/(\d{4})年(\d+)月/);
+  if (jpFull) return { year: parseInt(jpFull[1]), month: parseInt(jpFull[2]) };
+  var slash  = str.match(/^(\d{4})\/(\d+)\//);
+  if (slash)  return { year: parseInt(slash[1]),  month: parseInt(slash[2]) };
+  var iso    = str.match(/^(\d{4})-(\d{2})-/);
+  if (iso)    return { year: parseInt(iso[1]),    month: parseInt(iso[2]) };
+  var jp     = str.match(/^(\d+)月/);
+  if (jp)     return { year: null, month: parseInt(jp[1]) };
+  return { year: null, month: -1 };
+}
+
+function matchesMonth(dateStr, ym) {
+  if (!ym) return true;
+  var y  = parseInt(ym.split('-')[0]);
+  var m  = parseInt(ym.split('-')[1]);
+  var ym2 = extractYearMonth(dateStr);
+  if (ym2.year !== null) return ym2.year === y && ym2.month === m;
+  return ym2.month === m; // 年なし古データは月のみ判定
 }
 
 function showStatus(msg, type) {
