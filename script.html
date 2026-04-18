@@ -123,16 +123,8 @@ function setupNavigation() {
 
 // ── 入力フォーム ─────────────────────────────────────
 function setupEntryForm() {
-  var programmaticFocus = false; // addItem()などからの自動focus時はスクロールしない
   fProduct.addEventListener('focus', function() {
-    if (programmaticFocus) { programmaticFocus = false; return; }
-    // ユーザーが手動でタップした時だけスクロール
-    setTimeout(function() {
-      var card    = fProduct.closest('.card');
-      var headerH = document.querySelector('.header').offsetHeight;
-      var targetY = window.scrollY + card.getBoundingClientRect().top - headerH - 8;
-      window.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
-    }, 350);
+    // iOSはfocus時に自動スクロールするので独自scrollToは不要
   });
   fProduct.addEventListener('input', onProductInput);
   fProduct.addEventListener('keydown', onProductKeydown);
@@ -307,7 +299,6 @@ function addItem() {
   fQty.value     = '';
   fPrice.value   = '';
   fAmount.textContent = '—';
-  programmaticFocus = true;
   fProduct.focus();
 }
 
