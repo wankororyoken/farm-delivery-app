@@ -123,6 +123,15 @@ function setupNavigation() {
 
 // ── 入力フォーム ─────────────────────────────────────
 function setupEntryForm() {
+  fProduct.addEventListener('focus', function() {
+    // キーボード表示後に入力欄をヘッダー直下へスクロール
+    setTimeout(function() {
+      var card    = fProduct.closest('.card');
+      var headerH = document.querySelector('.header').offsetHeight;
+      var targetY = window.scrollY + card.getBoundingClientRect().top - headerH - 8;
+      window.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
+    }, 350);
+  });
   fProduct.addEventListener('input', onProductInput);
   fProduct.addEventListener('keydown', onProductKeydown);
   fProduct.addEventListener('blur', function() {
@@ -183,10 +192,21 @@ function onProductInput() {
         '<span class="sug-price">¥' + (latest.unitPrice||0).toLocaleString() + '</span>' +
         '<span class="sug-date">' + esc(String(latest.date||'')) + '</span>' +
       '</span>';
-    // touchstart + preventDefault でiOSのSafariツールチップを抑制
+    // スクロールと選択を区別: 指が動いていなければ選択
+    var touchStartY = 0;
+    var touchMoved  = false;
     li.addEventListener('touchstart', function(e) {
-      e.preventDefault();
-      selectProduct(name, latest.unitPrice);
+      touchStartY = e.touches[0].clientY;
+      touchMoved  = false;
+    }, { passive: true }); // passive:true でリストのスクロールを妨げない
+    li.addEventListener('touchmove', function(e) {
+      if (Math.abs(e.touches[0].clientY - touchStartY) > 6) touchMoved = true;
+    }, { passive: true });
+    li.addEventListener('touchend', function(e) {
+      if (!touchMoved) {
+        e.preventDefault();
+        selectProduct(name, latest.unitPrice);
+      }
     }, { passive: false });
     // マウス操作のフォールバック
     li.addEventListener('mousedown', function(e) {
