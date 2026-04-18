@@ -199,23 +199,31 @@ function onProductInput() {
   positionSuggestions();
 }
 
-// キーボード表示時にサジェストを上向きに切り替え
+// キーボードを考慮してサジェストを固定配置
 function positionSuggestions() {
-  var vvHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  var vv       = window.visualViewport;
+  var vvHeight = vv ? vv.height : window.innerHeight;
   var rect     = fProduct.getBoundingClientRect();
-  var below    = vvHeight - rect.bottom - 8;
-  var above    = rect.top - 8;
+  var spaceBelow = vvHeight - rect.bottom - 8;
+  var spaceAbove = rect.top - 8;
+  var leftPos  = rect.left;
+  var rightPos = window.innerWidth - rect.right;
 
-  if (below < 180 && above > below) {
-    // 上向き表示
-    suggestions.style.top    = 'auto';
-    suggestions.style.bottom = rect.height + 'px';
-    suggestions.style.maxHeight = Math.min(above, 260) + 'px';
+  suggestions.style.left  = leftPos  + 'px';
+  suggestions.style.right = rightPos + 'px';
+  suggestions.style.width = 'auto';
+
+  if (spaceBelow < 180) {
+    // キーボードが開いている → 入力欄の上に表示
+    var keyboardTop = vvHeight; // ビューポート下端 = キーボード上端
+    suggestions.style.top       = 'auto';
+    suggestions.style.bottom    = (window.innerHeight - rect.top + 4) + 'px';
+    suggestions.style.maxHeight = Math.min(spaceAbove - 4, 280) + 'px';
   } else {
-    // 下向き表示（デフォルト）
-    suggestions.style.top    = '100%';
-    suggestions.style.bottom = 'auto';
-    suggestions.style.maxHeight = Math.min(below, 260) + 'px';
+    // キーボードなし → 入力欄の下に表示
+    suggestions.style.top       = (rect.bottom + 4) + 'px';
+    suggestions.style.bottom    = 'auto';
+    suggestions.style.maxHeight = Math.min(spaceBelow, 280) + 'px';
   }
 }
 

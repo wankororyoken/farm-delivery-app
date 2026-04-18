@@ -118,15 +118,13 @@ body {
 /* ── Product autocomplete ── */
 .product-input-wrap { position: relative; }
 .suggestions {
-  position: absolute;
-  top: 100%;
-  left: 0; right: 0;
+  /* JS が position/top/left/right/maxHeight を動的にセット */
+  position: fixed;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0,0,0,.15);
-  z-index: 200;
-  max-height: 45vh;
+  box-shadow: 0 6px 24px rgba(0,0,0,.18);
+  z-index: 500;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   list-style: none;
