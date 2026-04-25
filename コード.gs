@@ -48,23 +48,29 @@ function getMetadata() {
   };
 }
 
-// 一覧・請求書用: 指定年月のデータのみ返す（サーバー側フィルタ）
-// month: "2026-02" 形式
+// 一覧・請求書用: 指定年月のデータを返す（末尾にシート行番号を付加）
+// month: "2026-02" 形式。戻り値: [date, product, qty, unitPrice, amount, biz, dest, rowNum]
 function getSheetData(month) {
   var data = getAllData_();
-  var rows = data.map(rowToArray_);
-  if (!month) return rows;
+  var result = [];
 
-  var y = parseInt(month.split('-')[0]);
-  var m = parseInt(month.split('-')[1]);
+  for (var i = 0; i < data.length; i++) {
+    var rowNum = DATA_START_ROW + i;
+    var normalized = rowToArray_(data[i]);
 
-  return rows.filter(function(row) {
-    var ym = extractYearMonth_(row[COL.DATE]);
-    // 年情報がある場合は年+月で厳密に一致
-    if (ym.year !== null) return ym.year === y && ym.month === m;
-    // 年情報がない古いデータは月のみで判定
-    return ym.month === m;
-  });
+    if (month) {
+      var y  = parseInt(month.split('-')[0]);
+      var m  = parseInt(month.split('-')[1]);
+      var ym = extractYearMonth_(normalized[COL.DATE]);
+      var match = (ym.year !== null)
+        ? (ym.year === y && ym.month === m)
+        : (ym.month === m);
+      if (!match) continue;
+    }
+    // 行番号を末尾（index 7）に付加
+    result.push(normalized.concat([rowNum]));
+  }
+  return result;
 }
 
 // 行の配列をシート末尾に追記する
@@ -72,6 +78,15 @@ function appendRows(rows) {
   var sheet = getSheet_();
   rows.forEach(function(row) { sheet.appendRow(row); });
   return rows.length;
+}
+
+// 指定行を更新する（編集機能）
+// params: { rowNum: number, rowData: array }
+function updateRow(params) {
+  var sheet = getSheet_();
+  sheet.getRange(params.rowNum, 1, 1, params.rowData.length)
+       .setValues([params.rowData]);
+  return true;
 }
 
 // ── 内部ユーティリティ ────────────────────────────────

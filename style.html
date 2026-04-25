@@ -296,6 +296,74 @@ body {
 .invoice-to    { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
 .invoice-grand { font-size: 20px; font-weight: 700; color: var(--green); margin: 8px 0 16px; }
 
+/* ── Edit modal（ボトムシート） ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  z-index: 400;
+  display: flex;
+  align-items: flex-end;
+  -webkit-tap-highlight-color: transparent;
+}
+.modal-sheet {
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  padding: 8px 16px 0;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+  width: 100%;
+  max-height: 92vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.modal-handle {
+  width: 40px; height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 0 auto 16px;
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.modal-title { font-size: 17px; font-weight: 700; }
+.btn-icon {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: #f3f4f6;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.modal-body { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.edit-row-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.modal-footer { display: flex; gap: 10px; padding: 12px 0; }
+.modal-footer .btn { flex: 1; }
+
+/* ── 一覧の編集ボタン ── */
+.btn-edit-row {
+  padding: 5px 12px;
+  min-height: 34px;
+  border-radius: 6px;
+  border: 1px solid var(--green);
+  background: transparent;
+  color: var(--green);
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  white-space: nowrap;
+}
+.btn-edit-row:active { background: var(--green-light); }
+
 /* ── Loading overlay ── */
 .auth-overlay {
   position: absolute;

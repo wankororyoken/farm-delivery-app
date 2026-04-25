@@ -11,7 +11,7 @@ function gasCall(fnName, arg) {
 }
 
 // ── 定数 ─────────────────────────────────────────────
-var COL = { DATE:0, PRODUCT:1, QTY:2, UNIT_PRICE:3, AMOUNT:4, BUSINESS:5, DESTINATION:6 };
+var COL = { DATE:0, PRODUCT:1, QTY:2, UNIT_PRICE:3, AMOUNT:4, BUSINESS:5, DESTINATION:6, ROW_NUM:7 };
 
 // ── 状態 ─────────────────────────────────────────────
 var pendingItems   = [];
@@ -52,6 +52,7 @@ document.addEventListener('DOMContentLoaded', function() {
   setupEntryForm();
   setupListView();
   setupInvoiceView();
+  setupEditModal();
   loadMetadata();
 });
 
@@ -408,16 +409,115 @@ function renderListTable(rows) {
     total += amount;
     var tr = document.createElement('tr');
     tr.innerHTML =
-      '<td>' + esc(String(row[0]||'')) + '</td>' +
-      '<td>' + esc(String(row[1]||'')) + '</td>' +
-      '<td class="num">' + (row[2]||'') + '</td>' +
-      '<td class="num">' + (row[3]||'') + '</td>' +
+      '<td>' + esc(String(row[COL.DATE]      ||'')) + '</td>' +
+      '<td>' + esc(String(row[COL.PRODUCT]   ||'')) + '</td>' +
+      '<td class="num">' + (row[COL.QTY]       ||'') + '</td>' +
+      '<td class="num">' + (row[COL.UNIT_PRICE]||'') + '</td>' +
       '<td class="num">¥' + amount.toLocaleString() + '</td>' +
-      '<td>' + esc(String(row[5]||'')) + '</td>' +
-      '<td>' + esc(String(row[6]||'')) + '</td>';
+      '<td>' + esc(String(row[COL.BUSINESS]   ||'')) + '</td>' +
+      '<td>' + esc(String(row[COL.DESTINATION]||'')) + '</td>' +
+      '<td><button class="btn-edit-row">編集</button></td>';
+    // 編集ボタンにrowデータを渡す
+    var editBtn = tr.querySelector('.btn-edit-row');
+    (function(r) {
+      editBtn.addEventListener('click', function() { openEditModal(r); });
+    })(row);
     tbody.appendChild(tr);
   });
   $('list-summary').textContent = filtered.length + ' 件　合計: ¥' + total.toLocaleString();
+}
+
+// ── 編集モーダル ──────────────────────────────────────
+var editingRowNum = null;
+
+function setupEditModal() {
+  $('btn-modal-close').addEventListener('click', closeEditModal);
+  $('btn-edit-cancel').addEventListener('click', closeEditModal);
+  $('btn-edit-save').addEventListener('click', saveEdit);
+  $('edit-qty').addEventListener('input', updateEditAmount);
+  $('edit-price').addEventListener('input', updateEditAmount);
+  // オーバーレイをタップで閉じる
+  $('edit-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeEditModal();
+  });
+}
+
+function openEditModal(row) {
+  editingRowNum = row[COL.ROW_NUM];
+
+  $('edit-date').value        = dateJPToISO(String(row[COL.DATE]    || ''));
+  $('edit-product').value     = String(row[COL.PRODUCT]    || '');
+  $('edit-qty').value         = row[COL.QTY]        || '';
+  $('edit-price').value       = row[COL.UNIT_PRICE]  || '';
+  populateSelect($('edit-business'),     businesses,   String(row[COL.BUSINESS]    || ''));
+  populateSelect($('edit-destination'),  destinations, String(row[COL.DESTINATION] || ''));
+
+  updateEditAmount();
+  $('edit-status').classList.add('hidden');
+  $('btn-edit-save').disabled = false;
+  $('edit-modal').classList.remove('hidden');
+}
+
+function closeEditModal() {
+  $('edit-modal').classList.add('hidden');
+  editingRowNum = null;
+}
+
+function updateEditAmount() {
+  var qty    = parseFloat($('edit-qty').value)   || 0;
+  var price  = parseFloat($('edit-price').value) || 0;
+  var amount = qty * price;
+  $('edit-amount').textContent = amount > 0 ? '¥' + amount.toLocaleString() : '—';
+}
+
+function saveEdit() {
+  var dateISO = $('edit-date').value;
+  var product = $('edit-product').value.trim();
+  var qty     = parseFloat($('edit-qty').value);
+  var price   = parseFloat($('edit-price').value);
+  var biz     = $('edit-business').value;
+  var dest    = $('edit-destination').value;
+
+  if (!dateISO || !product || !qty || !price) {
+    showEditStatus('日付・品名・数量・単価を入力してください。', 'error');
+    return;
+  }
+
+  var amount  = qty * price;
+  var rowData = [formatDateJP(dateISO), product, qty, price, amount, biz, dest];
+
+  $('btn-edit-save').disabled = true;
+  showEditStatus('保存中…', 'info');
+
+  gasCall('updateRow', { rowNum: editingRowNum, rowData: rowData })
+    .then(function() {
+      showEditStatus('保存しました。', 'success');
+      cachedMonth = null; // キャッシュを無効化
+      setTimeout(function() {
+        closeEditModal();
+        refreshListView();
+      }, 700);
+    })
+    .catch(function(e) {
+      showEditStatus('保存に失敗しました: ' + e.message, 'error');
+      $('btn-edit-save').disabled = false;
+    });
+}
+
+function showEditStatus(msg, type) {
+  var el = $('edit-status');
+  el.textContent = msg;
+  el.className   = 'save-status ' + type;
+  el.classList.remove('hidden');
+}
+
+// "2026年4月18日" → "2026-04-18"（date input 用）
+function dateJPToISO(str) {
+  var m = str.match(/(\d{4})年(\d+)月(\d+)日/);
+  if (m) return m[1] + '-' + ('0'+m[2]).slice(-2) + '-' + ('0'+m[3]).slice(-2);
+  var s = str.match(/(\d{4})\/(\d+)\/(\d+)/);
+  if (s) return s[1] + '-' + ('0'+s[2]).slice(-2) + '-' + ('0'+s[3]).slice(-2);
+  return str; // ISO形式ならそのまま
 }
 
 // ── 請求書ビュー ──────────────────────────────────────
