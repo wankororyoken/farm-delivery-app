@@ -79,13 +79,10 @@ body {
 /* ── Views ── */
 .view.hidden { display: none; }
 
-/* ── Field groups — モバイル縦並び ── */
-.common-fields { display: flex; flex-wrap: wrap; gap: 10px; }
-.common-fields .field-group { flex: 1 1 100px; }
-
-.item-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.field-group--product { grid-column: 1 / -1; }
-.field-group--btn     { grid-column: 1 / -1; }
+/* ── Entry form layout ── */
+.entry-fields    { display: flex; flex-direction: column; gap: 12px; }
+.entry-row-2col  { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.entry-row-3col  { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 
 .list-filters, .invoice-controls {
   display: grid;
@@ -211,9 +208,7 @@ body {
   align-items: center;
   box-shadow: 0 -2px 8px rgba(0,0,0,.08);
 }
-.save-bar-total { font-size: 15px; font-weight: 600; white-space: nowrap; }
-.save-bar .btn--save  { flex: 1; font-size: 16px; padding: 12px; }
-.save-bar .btn--ghost { flex: 0 0 auto; padding: 12px 14px; font-size: 14px; }
+.save-bar .btn--save { flex: 1; font-size: 16px; padding: 12px; }
 
 /* ── Pending ── */
 .pending-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -414,9 +409,7 @@ body {
 
 /* ── Desktop補正 ── */
 @media (min-width: 600px) {
-  .item-fields { grid-template-columns: 2fr 1fr 1fr 1fr auto; }
-  .field-group--product, .field-group--btn { grid-column: auto; }
-  .field-group--btn { align-self: flex-end; }
+  .entry-row-3col { grid-template-columns: 1fr 1fr 1fr; }
   .list-filters { grid-template-columns: 1fr 1fr 1fr auto; }
   .list-filters .btn--primary { grid-column: auto; }
   .invoice-controls { grid-template-columns: 1fr 1fr auto auto auto; }

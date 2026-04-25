@@ -21,26 +21,22 @@
     <!-- ========== 入力ビュー ========== -->
     <section id="view-entry" class="view">
       <div class="card">
-        <div class="common-fields">
+        <div class="entry-fields">
           <div class="field-group">
             <label for="f-date">日付</label>
             <input type="date" id="f-date" class="input">
           </div>
-          <div class="field-group">
-            <label for="f-business">事業</label>
-            <select id="f-business" class="input"></select>
+          <div class="entry-row-2col">
+            <div class="field-group">
+              <label for="f-business">事業</label>
+              <select id="f-business" class="input"></select>
+            </div>
+            <div class="field-group">
+              <label for="f-destination">納品先</label>
+              <select id="f-destination" class="input"></select>
+            </div>
           </div>
           <div class="field-group">
-            <label for="f-destination">納品先</label>
-            <select id="f-destination" class="input"></select>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2 class="card-title">品目追加</h2>
-        <div class="item-fields">
-          <div class="field-group field-group--product">
             <label for="f-product">品名</label>
             <div class="product-input-wrap">
               <input type="text" id="f-product" class="input"
@@ -50,44 +46,22 @@
               <ul id="product-suggestions" class="suggestions hidden"></ul>
             </div>
           </div>
-          <div class="field-group field-group--qty">
-            <label for="f-qty">数量</label>
-            <input type="number" id="f-qty" class="input"
-                   min="0" step="0.1" placeholder="0" inputmode="decimal">
+          <div class="entry-row-3col">
+            <div class="field-group">
+              <label for="f-qty">数量</label>
+              <input type="number" id="f-qty" class="input"
+                     min="0" step="0.1" placeholder="0" inputmode="decimal">
+            </div>
+            <div class="field-group">
+              <label for="f-price">単価</label>
+              <input type="number" id="f-price" class="input"
+                     min="0" step="1" placeholder="0" inputmode="numeric">
+            </div>
+            <div class="field-group">
+              <label>金額</label>
+              <div id="f-amount" class="amount-display">—</div>
+            </div>
           </div>
-          <div class="field-group field-group--price">
-            <label for="f-price">単価</label>
-            <input type="number" id="f-price" class="input"
-                   min="0" step="1" placeholder="0" inputmode="numeric">
-          </div>
-          <div class="field-group field-group--amount">
-            <label>金額</label>
-            <div id="f-amount" class="amount-display">—</div>
-          </div>
-          <div class="field-group field-group--btn">
-            <button id="btn-add-item" class="btn btn--primary btn-add-full">追加</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="card" id="pending-card">
-        <div class="pending-header">
-          <h2 class="card-title" style="margin-bottom:0">入力リスト</h2>
-          <div class="pending-total">合計: <strong id="pending-total">¥0</strong></div>
-        </div>
-        <div class="table-wrap" style="margin-top:10px">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>品名</th>
-                <th class="num">数量</th>
-                <th class="num">単価</th>
-                <th class="num">金額</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="pending-tbody"></tbody>
-          </table>
         </div>
         <div id="save-status" class="save-status hidden"></div>
       </div>
@@ -237,9 +211,7 @@
 
   <!-- 固定保存バー -->
   <div class="save-bar" id="save-bar">
-    <span class="save-bar-total" id="save-bar-total">¥0</span>
-    <button id="btn-save"  class="btn btn--save"  disabled>シートに保存</button>
-    <button id="btn-clear" class="btn btn--ghost" disabled>クリア</button>
+    <button id="btn-save" class="btn btn--save">シートに保存</button>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>

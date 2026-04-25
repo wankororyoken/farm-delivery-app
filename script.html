@@ -14,7 +14,6 @@ function gasCall(fnName, arg) {
 var COL = { DATE:0, PRODUCT:1, QTY:2, UNIT_PRICE:3, AMOUNT:4, BUSINESS:5, DESTINATION:6, ROW_NUM:7 };
 
 // ── 状態 ─────────────────────────────────────────────
-var pendingItems   = [];
 var productHistory = {};  // { "人参": [{date, unitPrice}] }
 var businesses     = [];
 var destinations   = [];
@@ -33,13 +32,8 @@ var fProduct     = $('f-product');
 var fQty         = $('f-qty');
 var fPrice       = $('f-price');
 var fAmount      = $('f-amount');
-var btnAddItem   = $('btn-add-item');
-var pendingTbody = $('pending-tbody');
-var pendingTotal = $('pending-total');
 var btnSave      = $('btn-save');
-var btnClear     = $('btn-clear');
 var saveBar      = $('save-bar');
-var saveBarTotal = $('save-bar-total');
 var saveStatus   = $('save-status');
 var suggestions  = $('product-suggestions');
 var loadingOverlay = $('loading-overlay');
@@ -140,8 +134,8 @@ function setupEntryForm() {
   }
   fQty.addEventListener('input', updateAmount);
   fPrice.addEventListener('input', updateAmount);
-  btnAddItem.addEventListener('click', addItem);
 
+  // Enter キーで次フィールドへ / 最後のフィールドで保存
   [fProduct, fQty, fPrice].forEach(function(el, i) {
     el.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && !suggestions.classList.contains('hidden')) return;
@@ -149,13 +143,12 @@ function setupEntryForm() {
         e.preventDefault();
         if (i === 0) fQty.focus();
         else if (i === 1) fPrice.focus();
-        else addItem();
+        else saveToSheet();
       }
     });
   });
 
   btnSave.addEventListener('click', saveToSheet);
-  btnClear.addEventListener('click', clearPending);
   fBusiness.addEventListener('change', function()    { save('lastBusiness',    fBusiness.value); });
   fDestination.addEventListener('change', function() { save('lastDestination', fDestination.value); });
 }
@@ -193,7 +186,7 @@ function onProductInput() {
     li.addEventListener('touchstart', function(e) {
       touchStartY = e.touches[0].clientY;
       touchMoved  = false;
-    }, { passive: true }); // passive:true でリストのスクロールを妨げない
+    }, { passive: true });
     li.addEventListener('touchmove', function(e) {
       if (Math.abs(e.touches[0].clientY - touchStartY) > 6) touchMoved = true;
     }, { passive: true });
@@ -229,13 +222,10 @@ function positionSuggestions() {
   suggestions.style.width = 'auto';
 
   if (spaceBelow < 180) {
-    // キーボードが開いている → 入力欄の上に表示
-    var keyboardTop = vvHeight; // ビューポート下端 = キーボード上端
     suggestions.style.top       = 'auto';
     suggestions.style.bottom    = (window.innerHeight - rect.top + 4) + 'px';
     suggestions.style.maxHeight = Math.min(spaceAbove - 4, 280) + 'px';
   } else {
-    // キーボードなし → 入力欄の下に表示
     suggestions.style.top       = (rect.bottom + 4) + 'px';
     suggestions.style.bottom    = 'auto';
     suggestions.style.maxHeight = Math.min(spaceBelow, 280) + 'px';
@@ -284,91 +274,49 @@ function updateAmount() {
   fAmount.textContent = amount > 0 ? '¥' + amount.toLocaleString() : '—';
 }
 
-// ── 品目追加 ──────────────────────────────────────────
-function addItem() {
+// ── シートへ保存（1品目直接保存） ─────────────────────
+function saveToSheet() {
   var product = fProduct.value.trim();
   var qty     = parseFloat(fQty.value);
   var price   = parseFloat(fPrice.value);
-  if (!product)         { fProduct.focus(); return; }
-  if (!qty || qty <= 0) { fQty.focus();     return; }
-  if (!price || price <= 0) { fPrice.focus(); return; }
 
-  pendingItems.push({ product: product, qty: qty, price: price, amount: qty * price });
-  renderPending();
-
-  fProduct.value = '';
-  fQty.value     = '';
-  fPrice.value   = '';
-  fAmount.textContent = '—';
-  fProduct.focus();
-}
-
-// ── 入力リスト描画 ────────────────────────────────────
-function renderPending() {
-  pendingTbody.innerHTML = '';
-  var total = 0;
-  pendingItems.forEach(function(item, i) {
-    total += item.amount;
-    var tr = document.createElement('tr');
-    tr.innerHTML =
-      '<td>' + esc(item.product) + '</td>' +
-      '<td class="num">' + item.qty + '</td>' +
-      '<td class="num">¥' + item.price.toLocaleString() + '</td>' +
-      '<td class="num">¥' + item.amount.toLocaleString() + '</td>' +
-      '<td><button class="btn-del" data-i="' + i + '">削除</button></td>';
-    pendingTbody.appendChild(tr);
-  });
-  pendingTbody.querySelectorAll('.btn-del').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      pendingItems.splice(parseInt(btn.dataset.i), 1);
-      renderPending();
-    });
-  });
-  var totalStr = '¥' + total.toLocaleString();
-  pendingTotal.textContent = totalStr;
-  saveBarTotal.textContent = totalStr;
-  var hasItems = pendingItems.length > 0;
-  btnSave.disabled  = !hasItems;
-  btnClear.disabled = !hasItems;
-}
-
-// ── シートへ保存 ──────────────────────────────────────
-function saveToSheet() {
-  if (!pendingItems.length) return;
-  btnSave.disabled = true;
-  showStatus('保存中…', 'info');
+  if (!fDate.value)          { fDate.focus();    return; }
+  if (!product)              { fProduct.focus(); return; }
+  if (!qty   || qty   <= 0)  { fQty.focus();     return; }
+  if (!price || price <= 0)  { fPrice.focus();   return; }
 
   var dateVal = formatDateJP(fDate.value);
   var biz     = fBusiness.value;
   var dest    = fDestination.value;
+  var amount  = qty * price;
 
-  var rows = pendingItems.map(function(item) {
-    return [dateVal, item.product, item.qty, item.price, item.amount, biz, dest];
-  });
+  btnSave.disabled = true;
+  showStatus('保存中…', 'info');
 
-  gasCall('appendRows', rows).then(function() {
-    // 品名履歴をローカルに反映
-    pendingItems.forEach(function(item) {
-      if (!productHistory[item.product]) productHistory[item.product] = [];
-      productHistory[item.product].push({ date: dateVal, unitPrice: item.price });
+  gasCall('appendRows', [[dateVal, product, qty, price, amount, biz, dest]])
+    .then(function() {
+      // 品名履歴をローカルに反映
+      if (!productHistory[product]) productHistory[product] = [];
+      productHistory[product].push({ date: dateVal, unitPrice: price });
+
+      // 月キャッシュを無効化
+      cachedMonth = null;
+
+      // 品名・数量・単価・金額をクリア（日付・事業・納品先は保持）
+      fProduct.value      = '';
+      fQty.value          = '';
+      fPrice.value        = '';
+      fAmount.textContent = '—';
+
+      btnSave.disabled = false;
+      showStatus('保存しました: ' + product + '  ¥' + amount.toLocaleString(), 'success');
+      setTimeout(function() { saveStatus.classList.add('hidden'); }, 4000);
+      fProduct.focus();
+    })
+    .catch(function(e) {
+      showStatus('保存に失敗しました: ' + e.message, 'error');
+      btnSave.disabled = false;
     });
-    // 月キャッシュを無効化（次回一覧表示時に再取得）
-    cachedMonth = null;
-
-    pendingItems = [];
-    renderPending();
-    showStatus(rows.length + ' 件を保存しました。', 'success');
-    setTimeout(function() { saveStatus.classList.add('hidden'); }, 4000);
-  }).catch(function(e) {
-    showStatus('保存に失敗しました: ' + e.message, 'error');
-    btnSave.disabled = false;
-  });
-}
-
-function clearPending() {
-  if (!confirm('入力リストをクリアしますか？')) return;
-  pendingItems = [];
-  renderPending();
 }
 
 // ── 一覧ビュー ────────────────────────────────────────
@@ -417,7 +365,6 @@ function renderListTable(rows) {
       '<td>' + esc(String(row[COL.BUSINESS]   ||'')) + '</td>' +
       '<td>' + esc(String(row[COL.DESTINATION]||'')) + '</td>' +
       '<td><button class="btn-edit-row">編集</button></td>';
-    // 編集ボタンにrowデータを渡す
     var editBtn = tr.querySelector('.btn-edit-row');
     (function(r) {
       editBtn.addEventListener('click', function() { openEditModal(r); });
@@ -437,7 +384,6 @@ function setupEditModal() {
   $('btn-edit-delete').addEventListener('click', confirmDelete);
   $('edit-qty').addEventListener('input', updateEditAmount);
   $('edit-price').addEventListener('input', updateEditAmount);
-  // オーバーレイをタップで閉じる
   $('edit-modal').addEventListener('click', function(e) {
     if (e.target === this) closeEditModal();
   });
@@ -493,7 +439,7 @@ function saveEdit() {
   gasCall('updateRow', { rowNum: editingRowNum, rowData: rowData })
     .then(function() {
       showEditStatus('保存しました。', 'success');
-      cachedMonth = null; // キャッシュを無効化
+      cachedMonth = null;
       setTimeout(function() {
         closeEditModal();
         refreshListView();
@@ -536,13 +482,13 @@ function showEditStatus(msg, type) {
   el.classList.remove('hidden');
 }
 
-// "2026年4月18日" → "2026-04-18"（date input 用）
+// "2026年4月18日" → "2026-04-18"
 function dateJPToISO(str) {
   var m = str.match(/(\d{4})年(\d+)月(\d+)日/);
   if (m) return m[1] + '-' + ('0'+m[2]).slice(-2) + '-' + ('0'+m[3]).slice(-2);
   var s = str.match(/(\d{4})\/(\d+)\/(\d+)/);
   if (s) return s[1] + '-' + ('0'+s[2]).slice(-2) + '-' + ('0'+s[3]).slice(-2);
-  return str; // ISO形式ならそのまま
+  return str;
 }
 
 // ── 請求書ビュー ──────────────────────────────────────
@@ -722,7 +668,6 @@ function showOverlayError(msg) {
 function formatDateJP(isoDate) {
   if (!isoDate) return '';
   var d = new Date(isoDate + 'T00:00:00');
-  // 年を含めて保存（年またぎのフィルタに対応）
   return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
 }
 
@@ -732,7 +677,6 @@ function formatMonthJP(ym) {
   return p[0] + '年' + parseInt(p[1]) + '月';
 }
 
-// 日付文字列から { year, month } を抽出（コード.gsと同じロジック）
 function extractYearMonth(str) {
   str = String(str || '');
   var jpFull = str.match(/(\d{4})年(\d+)月/);
@@ -744,15 +688,6 @@ function extractYearMonth(str) {
   var jp     = str.match(/^(\d+)月/);
   if (jp)     return { year: null, month: parseInt(jp[1]) };
   return { year: null, month: -1 };
-}
-
-function matchesMonth(dateStr, ym) {
-  if (!ym) return true;
-  var y  = parseInt(ym.split('-')[0]);
-  var m  = parseInt(ym.split('-')[1]);
-  var ym2 = extractYearMonth(dateStr);
-  if (ym2.year !== null) return ym2.year === y && ym2.month === m;
-  return ym2.month === m; // 年なし古データは月のみ判定
 }
 
 function showStatus(msg, type) {
