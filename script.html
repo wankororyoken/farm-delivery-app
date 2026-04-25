@@ -434,6 +434,7 @@ function setupEditModal() {
   $('btn-modal-close').addEventListener('click', closeEditModal);
   $('btn-edit-cancel').addEventListener('click', closeEditModal);
   $('btn-edit-save').addEventListener('click', saveEdit);
+  $('btn-edit-delete').addEventListener('click', confirmDelete);
   $('edit-qty').addEventListener('input', updateEditAmount);
   $('edit-price').addEventListener('input', updateEditAmount);
   // オーバーレイをタップで閉じる
@@ -501,6 +502,30 @@ function saveEdit() {
     .catch(function(e) {
       showEditStatus('保存に失敗しました: ' + e.message, 'error');
       $('btn-edit-save').disabled = false;
+    });
+}
+
+function confirmDelete() {
+  var product = $('edit-product').value || 'この行';
+  if (!confirm('「' + product + '」を削除しますか？\nこの操作は元に戻せません。')) return;
+
+  $('btn-edit-delete').disabled = true;
+  $('btn-edit-save').disabled   = true;
+  showEditStatus('削除中…', 'info');
+
+  gasCall('deleteRow', editingRowNum)
+    .then(function() {
+      showEditStatus('削除しました。', 'success');
+      cachedMonth = null;
+      setTimeout(function() {
+        closeEditModal();
+        refreshListView();
+      }, 700);
+    })
+    .catch(function(e) {
+      showEditStatus('削除に失敗しました: ' + e.message, 'error');
+      $('btn-edit-delete').disabled = false;
+      $('btn-edit-save').disabled   = false;
     });
 }
 

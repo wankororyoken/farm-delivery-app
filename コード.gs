@@ -89,6 +89,13 @@ function updateRow(params) {
   return true;
 }
 
+// 指定行を削除する
+function deleteRow(rowNum) {
+  var sheet = getSheet_();
+  sheet.deleteRow(rowNum);
+  return true;
+}
+
 // ── 内部ユーティリティ ────────────────────────────────
 function getSheet_() {
   var ss    = SpreadsheetApp.openById(SPREADSHEET_ID);
