@@ -79,7 +79,7 @@ function buildDropdowns() {
 
 function populateSelect(sel, values, selected) {
   if (!sel) return;
-  var prev = sel.value || selected;
+  var prev = selected;
   sel.innerHTML = '';
   values.forEach(function(v) {
     var opt = document.createElement('option');
